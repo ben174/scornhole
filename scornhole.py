@@ -87,11 +87,7 @@ class Scornhole:
         os.system('clear')
         for sensor in self.extents.keys():
             self.print_sensor(sensor)
-
         print()
-        # print(self.raw_values)
-        # print(self.translated_values)
-
         rgb = [self.translated_values[self.selected_sensor][axis] for axis in self.axes]
         print('RGB: {}, {}, {}'.format(*rgb))
         print('Show sensors: {}'.format(self.show_sensors))
@@ -155,7 +151,6 @@ class Scornhole:
             print ('You are on timeout.')
         self.curr_time = self.timeout
 
-
     def main(self):
         while True:
             while self.move.poll(): pass
@@ -167,10 +162,8 @@ class Scornhole:
                 self.move.update_leds()
             if self.debug:
                 self.print_values()
-
             triggered = self.trigger_value > 0 
             self.read_buttons()
-
             if triggered:
                 self.show_sensors = False
                 if self.curr_time == 0:
@@ -192,8 +185,6 @@ class Scornhole:
             if self.button_values['Triangle'] and not self.on_timeout():
                 self.put_on_timeout()
                 self.switch_sensor()
-
-
             self.sleep()
 
 if __name__ == '__main__':

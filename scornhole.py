@@ -1,18 +1,35 @@
 import random
 import sys
 import subprocess
-import os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..', 'build'))
-
-import psmove
 import time
+import os
 
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..', 'build'))
+import psmove
 
 
 
 class Scornhole:
     def __init__(self):
         self.move = psmove.PSMove()
+        self.timeout = 3.0
+        self.curr_time = 0.0
+        self.sleep_time = 0.1
+        self.extents = {
+            'a': (-4000, 4000),
+            'g': (-6000, 6000),
+            'm': (-360, 360),
+        }
+        self.raw_values = {
+            'a': (0),
+            'g': (0),
+            'm': (0),
+        }
+        self.translated_values = {
+            'a': (0),
+            'g': (0),
+            'm': (0),
+        }
 
         if self.move.connection_type == psmove.Conn_Bluetooth:
             print('bluetooth')
@@ -27,20 +44,21 @@ class Scornhole:
 
         self.specs = self.load_specs()
 
-    def translate(self, value, leftMin, leftMax, rightMin, rightMax):
+    def translate(self, value, inputMin, inputMax, outputMin, outputMax):
+        # clip extents
+        if value < inputMin:
+            return outputMin
+        if value > inputMax:
+            return outputMax
         # Figure out how 'wide' each range is
-        leftSpan = leftMax - leftMin
-        rightSpan = rightMax - rightMin
-
-        # Convert the left range into a 0-1 range (float)
-        valueScaled = float(value - leftMin) / float(leftSpan)
-
-        # Convert the 0-1 range into a value in the right range.
-
-        ret = rightMin + (valueScaled * rightSpan)
-        
+        inputSpan = inputMax - inputMin
+        outputSpan = outputMax - outputMin
+        # Convert the input range into a 0-1 range (float)
+        valueScaled = float(value - inputMin) / float(inputSpan)
+        # Convert the 0-1 range into a value in the output range.
+        ret = outputMin + (valueScaled * outputSpan)
+        # print('Translated: {} => {} - {} to {} - {} => {}'.format(value, inputMin, inputMax, outputMin, outputMax, int(ret)))
         return ret
-
 
     def load_specs(self):
         lines = [line.rstrip('\n').split(' ') for line in open('specs.txt', 'r')]
@@ -49,25 +67,49 @@ class Scornhole:
 
     def play_video(self, filename, start_x, start_y, end_x, end_y):
         command = 'omxplayer --win="{} {} {} {}" /home/pi/videos/{}'.format(start_x, start_y, end_x, end_y, filename)
-        #command = 'omxplayer --win="0 0 800 1100" /home/pi/videos/dapper.mp4'
         subprocess.Popen(command, shell=True)
 
 
-    def print_value(self):
-        pass
+    def print_values(self):
+        os.system('clear')
+        # print('accel:       ', (str(self.move.ax).rjust(6), str(self.move.ay).rjust(6), str(self.move.az).rjust(6)))
+        # print('gyro:        ', (str(self.move.gx).rjust(6), str(self.move.gy).rjust(6), str(self.move.gz).rjust(6)))
+        # print('magnetometer:', (str(self.move.mx).rjust(6), str(self.move.my).rjust(6), str(self.move.mz).rjust(6)))
+        for sensor in ('a', 'g', 'm'):
+            self.print_sensor(sensor)
+
+        print()
+        print(self.raw_values)
+        print(self.translated_values)
+
+    def print_sensor(self, sensor):
+        bar_size = 255
+        lo, hi = self.extents[sensor]
+        print('Sensor: {}'.format(sensor))
+        for attr in [sensor + 'x', sensor + 'y', sensor + 'z']:
+            value = getattr(self.move, attr)
+            self.raw_values[attr] = value
+            translated = int(self.translate(value, lo, hi, 0, bar_size))
+            self.translated_values[attr] = translated
+            print('{}: {} ({}) - {}'.format(attr, str(value).rjust(6), str(translated).rjust(4), '#' * translated)) 
+        print()
+
+    def sleep(self):
+        time.sleep(self.sleep_time)
+        prev_time = self.curr_time
+        self.curr_time = max(0, self.curr_time - self.sleep_time)
+        if self.curr_time == 0 and prev_time > 0:
+            print ('Ready.')
 
     def main(self):
         lowest_value = 0
         highest_value = 4000
-        timeout = 3.0
-        curr_time = 0.0
-        command = 'omxplayer', '--win="-825 0 1600 1024"', '/home/pi/videos/explosion.mp4'
-        command = 'omxplayer', '--win="0 0 1000 1800"', '/home/pi/videos/dapper.mp4'
-        sleep_time = 0.01
 
         while True:
             # Get the latest input report from the controller
             while self.move.poll(): pass
+
+            self.print_values()
 
             trigger_value = self.move.get_trigger()
 
@@ -80,12 +122,14 @@ class Scornhole:
             value = self.move.gx
 
             if value == -32768:
+                self.sleep()
                 continue
 
             lowest_value = min(lowest_value, value)
             highest_value = max(highest_value, value)
 
             if value < min_value or value > max_value:
+                self.sleep()
                 continue
 
             # print('Lowest: {}, Highest: {}'.format(lowest_value, highest_value))
@@ -93,14 +137,7 @@ class Scornhole:
             min_led = 1
             max_led = 255
                                                                                                                                                                                                                                                                       
-            red = int(self.translate(value, min_value, max_value, min_led, max_led))
-            # print ('# * {} + <sp> * {}'.format(red, 255-red))
-            # print (('#' * red) + ' ' * (max_led-red), end='' + str(red).rjust(5))
-
-            # print ('\b' * (max_led + 5), end='')
-
-            # print(red)
-            on_timeout = curr_time > 0 
+            on_timeout = self.curr_time > 0 
             buttons = self.move.get_buttons()
 
             self.move_pressed = buttons & psmove.Btn_MOVE
@@ -112,11 +149,11 @@ class Scornhole:
             # self.move.ay -4400 - 4400
 
             if triggered:
-                if curr_time == 0:
+                if self.curr_time == 0:
                     self.load_specs()
                     print('Showing vid')
                     self.play_video(*random.choice(self.specs))
-                    curr_time = timeout
+                    self.curr_time = self.timeout
                 else:
                     self.move.set_leds(0, 0, 255)
                     self.move.update_leds()
@@ -126,19 +163,10 @@ class Scornhole:
                 self.move.set_rumble(0)
 
             
-            '''
-            print('accel:', (self.move.ax, self.move.ay, self.move.az))
-            print('gyro:', (self.move.gx, self.move.gy, self.move.gz))
-            print('magnetometer:', (self.move.mx, self.move.my, self.move.mz))
-            '''
-            #print('accel:', (str(self.move.ax).rjust(5), str(self.move.ay).rjust(5), str(self.move.az).rjust(5)))
             # print (self.move.get_buttons())
             # print (trigger_value)
-            prev_time = curr_time
-            curr_time = max(0, curr_time - sleep_time)
-            if curr_time == 0 and prev_time > 0:
-                print ('Ready.')
-            time.sleep(sleep_time)
+
+            self.sleep()
 
 if __name__ == '__main__':
     if psmove.count_connected() < 1:

@@ -15,33 +15,32 @@ class Scornhole:
         self.timeout = 3.0
         self.curr_time = 0.0
         self.sleep_time = 0.1
+        self.bar_size = 255
         self.extents = {
             'a': (-4000, 4000),
             'g': (-6000, 6000),
             'm': (-360, 360),
         }
         self.raw_values = {
-            'a': (0),
-            'g': (0),
-            'm': (0),
+            'a': {'x': 0, 'y': 0, 'z': 0},
+            'g': {'x': 0, 'y': 0, 'z': 0},
+            'm': {'x': 0, 'y': 0, 'z': 0},
         }
         self.translated_values = {
-            'a': (0),
-            'g': (0),
-            'm': (0),
+            'a': {'x': 0, 'y': 0, 'z': 0},
+            'g': {'x': 0, 'y': 0, 'z': 0},
+            'm': {'x': 0, 'y': 0, 'z': 0},
         }
-
+        self.show_sensors = True
         if self.move.connection_type == psmove.Conn_Bluetooth:
             print('bluetooth')
         elif self.move.connection_type == psmove.Conn_USB:
             print('usb')
         else:
             print('unknown')
-
         if self.move.connection_type != psmove.Conn_Bluetooth:
             print('Please connect controller via Bluetooth')
             sys.exit(1)
-
         self.specs = self.load_specs()
 
     def translate(self, value, inputMin, inputMax, outputMin, outputMax):
@@ -69,7 +68,6 @@ class Scornhole:
         command = 'omxplayer --win="{} {} {} {}" /home/pi/videos/{}'.format(start_x, start_y, end_x, end_y, filename)
         subprocess.Popen(command, shell=True)
 
-
     def print_values(self):
         os.system('clear')
         # print('accel:       ', (str(self.move.ax).rjust(6), str(self.move.ay).rjust(6), str(self.move.az).rjust(6)))
@@ -81,16 +79,27 @@ class Scornhole:
         print()
         print(self.raw_values)
         print(self.translated_values)
+        rgb = (self.translated_values['m']['x'], self.translated_values['m']['y'], self.translated_values['m']['z'])
+        print('RGB: {}, {}, {}'.format(*rgb))
+        print('Show sensors: {}'.format(self.show_sensors))
+
+    def read_sensors(self):
+        for sensor in ('a', 'g', 'm'):
+            self.read_sensor(sensor)
+
+    def read_sensor(self, sensor):
+        lo, hi = self.extents[sensor]
+        for attr in ['x', 'y', 'z']:
+            value = getattr(self.move, sensor + attr)
+            self.raw_values[sensor][attr] = value
+            translated = int(self.translate(value, lo, hi, 0, self.bar_size))
+            self.translated_values[sensor][attr] = translated
 
     def print_sensor(self, sensor):
-        bar_size = 255
-        lo, hi = self.extents[sensor]
         print('Sensor: {}'.format(sensor))
-        for attr in [sensor + 'x', sensor + 'y', sensor + 'z']:
-            value = getattr(self.move, attr)
-            self.raw_values[attr] = value
-            translated = int(self.translate(value, lo, hi, 0, bar_size))
-            self.translated_values[attr] = translated
+        for attr in ['x', 'y', 'z']:
+            value = self.raw_values[sensor][attr]
+            translated = self.translated_values[sensor][attr]
             print('{}: {} ({}) - {}'.format(attr, str(value).rjust(6), str(translated).rjust(4), '#' * translated)) 
         print()
 
@@ -101,6 +110,9 @@ class Scornhole:
         if self.curr_time == 0 and prev_time > 0:
             print ('Ready.')
 
+    def on_timeout(self):
+        return self.curr_time > 0 
+
     def main(self):
         lowest_value = 0
         highest_value = 4000
@@ -109,62 +121,37 @@ class Scornhole:
             # Get the latest input report from the controller
             while self.move.poll(): pass
 
+            self.read_sensors()
+            if self.show_sensors:
+                rgb = (self.translated_values['m']['x'], self.translated_values['m']['y'], self.translated_values['m']['z'])
+                print('RGB: {}, {}, {}'.format(*rgb))
+                self.move.set_leds(*rgb)
+                self.move.update_leds()
             self.print_values()
 
             trigger_value = self.move.get_trigger()
-
             triggered = trigger_value > 0 
-            # print(trigger_value)
 
-            min_value = -180
-            max_value = 180
-
-            value = self.move.gx
-
-            if value == -32768:
-                self.sleep()
-                continue
-
-            lowest_value = min(lowest_value, value)
-            highest_value = max(highest_value, value)
-
-            if value < min_value or value > max_value:
-                self.sleep()
-                continue
-
-            # print('Lowest: {}, Highest: {}'.format(lowest_value, highest_value))
-
-            min_led = 1
-            max_led = 255
-                                                                                                                                                                                                                                                                      
-            on_timeout = self.curr_time > 0 
             buttons = self.move.get_buttons()
 
             self.move_pressed = buttons & psmove.Btn_MOVE
 
-            if not triggered:
-                self.move.set_leds(0 if on_timeout else 255, 255 if on_timeout else 0, 0)
-                self.move.update_leds()
-
-            # self.move.ay -4400 - 4400
-
             if triggered:
+                self.show_sensors = False
                 if self.curr_time == 0:
                     self.load_specs()
                     print('Showing vid')
                     self.play_video(*random.choice(self.specs))
                     self.curr_time = self.timeout
                 else:
-                    self.move.set_leds(0, 0, 255)
-                    self.move.update_leds()
-                # print('triangle pressed')
-                # self.move.set_rumble(trigger_value)
+                    if self.on_timeout():
+                        self.move.set_leds(0, 255, 0)
+                        self.move.update_leds()
             else:
-                self.move.set_rumble(0)
-
-            
-            # print (self.move.get_buttons())
-            # print (trigger_value)
+                self.show_sensors = not self.on_timeout()
+                if not self.show_sensors:
+                    self.move.set_leds(255, 0, 0)
+                    self.move.update_leds()
 
             self.sleep()
 

@@ -1,2 +1,11 @@
 dapper.mp4 0 0 800 1100
 explosion.mp4 -825 0 1600 1024
+sunlight.mp4 -825 0 1200 1024
+fall.mp4
+hump.mp4
+treadmill.mp4
+guy.mp4 -625 0 1200 1024
+cat.mp4
+cruz.mp4 -625 0 1200 824
+gonbe.mp4 -625 0 1200 824
+fireworks.mp4

@@ -8,8 +8,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..', 'bu
 import psmove
 
 
-
 class Scornhole:
+    FNULL = open(os.devnull, 'w')
+
     def __init__(self):
         self.move = psmove.PSMove()
         self.timeout = 3.0
@@ -23,7 +24,7 @@ class Scornhole:
             'g': (-6000, 6000),
             'm': (-360, 360),
         }
-        self.debug = True
+        self.debug = False
         self.raw_values = {sensor: {axis: 0 for axis in self.axes} for sensor in self.sensors.keys()}
         self.translated_values = dict(self.raw_values)
         self.selected_sensor = 'a'
@@ -69,13 +70,18 @@ class Scornhole:
         return ret
 
     def load_specs(self):
-        lines = [line.rstrip('\n').split(' ') for line in open('specs.txt', 'r')]
+        lines = [line.rstrip('\n').split(' ') for line in open('specs.txt', 'r') if not line.startswith('#')]
         self.specs = lines
-        print(lines)
+        print('Loaded {} videos.'.format(len(lines)))
 
-    def play_video(self, filename, start_x, start_y, end_x, end_y):
-        command = 'omxplayer --win="{} {} {} {}" /home/pi/videos/{}'.format(start_x, start_y, end_x, end_y, filename)
-        subprocess.Popen(command, shell=True)
+    def play_video(self, filename, *args):
+        if (len(args) > 0):
+            start_x, start_y, end_x, end_y = args
+            command = 'omxplayer --win="{} {} {} {}" /home/pi/videos/{}'.format(start_x, start_y, end_x, end_y, filename)
+        else:
+            command = 'omxplayer /home/pi/videos/{}'.format(filename)
+        print('Running command: {}'.format(command))
+        subprocess.Popen(command, shell=True, stdout=self.FNULL)
 
     def print_values(self):
         os.system('clear')
@@ -83,13 +89,18 @@ class Scornhole:
             self.print_sensor(sensor)
 
         print()
-        print(self.raw_values)
-        print(self.translated_values)
+        # print(self.raw_values)
+        # print(self.translated_values)
 
         rgb = [self.translated_values[self.selected_sensor][axis] for axis in self.axes]
         print('RGB: {}, {}, {}'.format(*rgb))
         print('Show sensors: {}'.format(self.show_sensors))
-        print(self.button_values)
+        print('On timeout: {}'.format(self.on_timeout()))
+        print()
+        print('Buttons:')
+        for button, value in self.button_values.items():
+            print('   {}: {}'.format(button.ljust(10), value))
+        print()
 
     def read_sensors(self):
         for sensor in ('a', 'g', 'm'):
@@ -118,7 +129,8 @@ class Scornhole:
         prev_time = self.curr_time
         self.curr_time = max(0, self.curr_time - self.sleep_time)
         if self.curr_time == 0 and prev_time > 0:
-            print ('Ready.')
+            if not self.debug:
+                print ('You are off timeout.')
 
     def on_timeout(self):
         return self.curr_time > 0 
@@ -130,21 +142,19 @@ class Scornhole:
         else:
             index += 1
         self.selected_sensor = list(self.sensors.keys())[index]
+        if not self.debug:
+            print ('Switch sensor to: {}'.format(self.sensors[self.selected_sensor]))
 
     def read_buttons(self):
         self.trigger_value = self.move.get_trigger()
         buttons = self.move.get_buttons()
-        '''
-        self.button_mappings = {
-            'Move': psmove.Btn_MOVE,
-            'Triangle': psmove.Btn_TRIANGLE,
-            'Circle': psmove.Btn_CIRCLE,
-            'Cross': psmove.Btn_CROSS,
-            'Square': psmove.Btn_SQUARE,
-        }
-        self.button_values = {b: False for b in self.button_mappings.keys()}
-        '''
         self.button_values = {label: bool(buttons & button) for label, button in self.button_mappings.items()}
+
+    def put_on_timeout(self):
+        if not self.debug:
+            print ('You are on timeout.')
+        self.curr_time = self.timeout
+
 
     def main(self):
         while True:
@@ -164,11 +174,11 @@ class Scornhole:
             if triggered:
                 self.show_sensors = False
                 if self.curr_time == 0:
+                    self.put_on_timeout()
                     self.load_specs()
-                    print('Showing vid')
                     self.play_video(*random.choice(self.specs))
-                    self.curr_time = self.timeout
-                    self.move.set_leds(0, 0, 255)
+                    # do blue
+                    # self.move.set_leds(0, 0, 255)
                     self.move.update_leds()
                 else:
                     if self.on_timeout():
@@ -180,6 +190,7 @@ class Scornhole:
                     self.move.set_leds(0, 255, 0)
                     self.move.update_leds()
             if self.button_values['Triangle'] and not self.on_timeout():
+                self.put_on_timeout()
                 self.switch_sensor()
 
 

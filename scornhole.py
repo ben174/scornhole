@@ -15,22 +15,17 @@ class Scornhole:
         self.timeout = 3.0
         self.curr_time = 0.0
         self.sleep_time = 0.1
+        self.sensors = {'a': 'Accelerometer', 'g': 'Gyroscope', 'm': 'Magnetometer'}
+        self.axes = ['x', 'y', 'z']
         self.bar_size = 255
         self.extents = {
             'a': (-4000, 4000),
             'g': (-6000, 6000),
             'm': (-360, 360),
         }
-        self.raw_values = {
-            'a': {'x': 0, 'y': 0, 'z': 0},
-            'g': {'x': 0, 'y': 0, 'z': 0},
-            'm': {'x': 0, 'y': 0, 'z': 0},
-        }
-        self.translated_values = {
-            'a': {'x': 0, 'y': 0, 'z': 0},
-            'g': {'x': 0, 'y': 0, 'z': 0},
-            'm': {'x': 0, 'y': 0, 'z': 0},
-        }
+        self.raw_values = {sensor: {axis: 0 for axis in self.axes} for sensor in self.sensors.keys()}
+        self.translated_values = dict(self.raw_values)
+        self.selected_sensor = 'a'
         self.show_sensors = True
         if self.move.connection_type == psmove.Conn_Bluetooth:
             print('bluetooth')
@@ -70,16 +65,14 @@ class Scornhole:
 
     def print_values(self):
         os.system('clear')
-        # print('accel:       ', (str(self.move.ax).rjust(6), str(self.move.ay).rjust(6), str(self.move.az).rjust(6)))
-        # print('gyro:        ', (str(self.move.gx).rjust(6), str(self.move.gy).rjust(6), str(self.move.gz).rjust(6)))
-        # print('magnetometer:', (str(self.move.mx).rjust(6), str(self.move.my).rjust(6), str(self.move.mz).rjust(6)))
-        for sensor in ('a', 'g', 'm'):
+        for sensor in self.extents.keys():
             self.print_sensor(sensor)
 
         print()
         print(self.raw_values)
         print(self.translated_values)
-        rgb = (self.translated_values['m']['x'], self.translated_values['m']['y'], self.translated_values['m']['z'])
+
+        rgb = [self.translated_values[self.selected_sensor][axis] for axis in self.axes]
         print('RGB: {}, {}, {}'.format(*rgb))
         print('Show sensors: {}'.format(self.show_sensors))
 
@@ -96,8 +89,10 @@ class Scornhole:
             self.translated_values[sensor][attr] = translated
 
     def print_sensor(self, sensor):
-        print('Sensor: {}'.format(sensor))
-        for attr in ['x', 'y', 'z']:
+        label = '{}{}'.format(self.sensors[sensor], ' (*)' if self.selected_sensor == sensor else '')
+        print(label)
+        print('-' * len(label))
+        for attr in self.axes:
             value = self.raw_values[sensor][attr]
             translated = self.translated_values[sensor][attr]
             print('{}: {} ({}) - {}'.format(attr, str(value).rjust(6), str(translated).rjust(4), '#' * translated)) 
@@ -113,6 +108,15 @@ class Scornhole:
     def on_timeout(self):
         return self.curr_time > 0 
 
+    def switch_sensor(self):
+        index = list(self.sensors.keys()).index(self.selected_sensor)
+        if index == 2:
+            index = 0
+        else:
+            index += 1
+        print(index)
+        self.selected_sensor = list(self.sensors.keys())[index]
+
     def main(self):
         lowest_value = 0
         highest_value = 4000
@@ -123,7 +127,7 @@ class Scornhole:
 
             self.read_sensors()
             if self.show_sensors:
-                rgb = (self.translated_values['m']['x'], self.translated_values['m']['y'], self.translated_values['m']['z'])
+                rgb = [self.translated_values[self.selected_sensor][axis] for axis in self.axes]
                 print('RGB: {}, {}, {}'.format(*rgb))
                 self.move.set_leds(*rgb)
                 self.move.update_leds()
@@ -152,6 +156,9 @@ class Scornhole:
                 if not self.show_sensors:
                     self.move.set_leds(255, 0, 0)
                     self.move.update_leds()
+            if self.move_pressed and not self.on_timeout():
+                self.switch_sensor()
+
 
             self.sleep()
 

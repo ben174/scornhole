@@ -23,10 +23,24 @@ class Scornhole:
             'g': (-6000, 6000),
             'm': (-360, 360),
         }
+        self.debug = True
         self.raw_values = {sensor: {axis: 0 for axis in self.axes} for sensor in self.sensors.keys()}
         self.translated_values = dict(self.raw_values)
         self.selected_sensor = 'a'
         self.show_sensors = True
+        self.move_pressed = False
+        self.trigger_pressed = False
+        self.trigger_value = 0
+        self.button_mappings = {
+            'Move': psmove.Btn_MOVE,
+            'Triangle': psmove.Btn_TRIANGLE,
+            'Circle': psmove.Btn_CIRCLE,
+            'Cross': psmove.Btn_CROSS,
+            'Square': psmove.Btn_SQUARE,
+            'Select': psmove.Btn_SELECT,
+            'Start': psmove.Btn_START,
+        }
+        self.button_values = {b: False for b in self.button_mappings.keys()}
         if self.move.connection_type == psmove.Conn_Bluetooth:
             print('bluetooth')
         elif self.move.connection_type == psmove.Conn_USB:
@@ -75,6 +89,7 @@ class Scornhole:
         rgb = [self.translated_values[self.selected_sensor][axis] for axis in self.axes]
         print('RGB: {}, {}, {}'.format(*rgb))
         print('Show sensors: {}'.format(self.show_sensors))
+        print(self.button_values)
 
     def read_sensors(self):
         for sensor in ('a', 'g', 'm'):
@@ -114,31 +129,37 @@ class Scornhole:
             index = 0
         else:
             index += 1
-        print(index)
         self.selected_sensor = list(self.sensors.keys())[index]
 
-    def main(self):
-        lowest_value = 0
-        highest_value = 4000
+    def read_buttons(self):
+        self.trigger_value = self.move.get_trigger()
+        buttons = self.move.get_buttons()
+        '''
+        self.button_mappings = {
+            'Move': psmove.Btn_MOVE,
+            'Triangle': psmove.Btn_TRIANGLE,
+            'Circle': psmove.Btn_CIRCLE,
+            'Cross': psmove.Btn_CROSS,
+            'Square': psmove.Btn_SQUARE,
+        }
+        self.button_values = {b: False for b in self.button_mappings.keys()}
+        '''
+        self.button_values = {label: bool(buttons & button) for label, button in self.button_mappings.items()}
 
+    def main(self):
         while True:
-            # Get the latest input report from the controller
             while self.move.poll(): pass
 
             self.read_sensors()
             if self.show_sensors:
                 rgb = [self.translated_values[self.selected_sensor][axis] for axis in self.axes]
-                print('RGB: {}, {}, {}'.format(*rgb))
                 self.move.set_leds(*rgb)
                 self.move.update_leds()
-            self.print_values()
+            if self.debug:
+                self.print_values()
 
-            trigger_value = self.move.get_trigger()
-            triggered = trigger_value > 0 
-
-            buttons = self.move.get_buttons()
-
-            self.move_pressed = buttons & psmove.Btn_MOVE
+            triggered = self.trigger_value > 0 
+            self.read_buttons()
 
             if triggered:
                 self.show_sensors = False
@@ -147,16 +168,18 @@ class Scornhole:
                     print('Showing vid')
                     self.play_video(*random.choice(self.specs))
                     self.curr_time = self.timeout
+                    self.move.set_leds(0, 0, 255)
+                    self.move.update_leds()
                 else:
                     if self.on_timeout():
-                        self.move.set_leds(0, 255, 0)
+                        self.move.set_leds(255, 0, 0)
                         self.move.update_leds()
             else:
                 self.show_sensors = not self.on_timeout()
                 if not self.show_sensors:
-                    self.move.set_leds(255, 0, 0)
+                    self.move.set_leds(0, 255, 0)
                     self.move.update_leds()
-            if self.move_pressed and not self.on_timeout():
+            if self.button_values['Triangle'] and not self.on_timeout():
                 self.switch_sensor()
 
 
